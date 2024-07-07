@@ -17,6 +17,9 @@ CHUNK = 1024
 # Initialize PyAudio
 audio = pyaudio.PyAudio()
 
+# Initialize Emotion
+emotion = brain.emotion
+
 audio_buffer = []
 
 def generate_frames():
@@ -71,11 +74,6 @@ def latest_decision():
     decision = brain.latest_decision
     return jsonify({'decision': decision})
 
-@app.route('/latest_emotion', methods=['GET'])
-def latest_emotion():
-    emotion = brain.latest_emotion
-    return jsonify({'emotion': emotion})
-
 @app.route('/start_brain', methods=['POST'])
 def start_brain_route():
     brain_thread = start_brain()
@@ -95,7 +93,7 @@ if __name__ == '__main__':
                         stream_callback=audio_callback)
     stream.start_stream()
     
-    app.run(debug=True, host='127.0.0.1', port=5000, threaded=True)
+    app.run(debug=True, threaded=True)
     
     stream.stop_stream()
     stream.close()
