@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Brain Simulation GUI</title>
+    <style>
+        .slider {
+            width: 300px;
+        }
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Brain Simulation Feed</h1>
+    <img src="{{ url_for('video_feed') }}" alt="Video Stream">
+    <h2>Adjust Edge Detection Parameters</h2>
+    <form id="paramsForm">
+        <label for="minVal">Min Val:</label>
+        <input type="range" id="minVal" name="minVal" min="0" max="255" value="100" class="slider">
+        <span id="minValOutput">100</span>
+        <br>
+        <label for="maxVal">Max Val:</label>
+        <input type="range" id="maxVal" name="maxVal" min="0" max="255" value="200" class="slider">
+        <span id="maxValOutput">200</span>
+        <br>
+        <button type="submit">Update</button>
+    </form>
+    <h2>Process Emotion</h2>
+    <form id="emotionForm">
+        <label for="emotion">Emotion:</label>
+        <input type="text" id="emotion" name="emotion" placeholder="Enter emotion (e.g., Happy)">
+        <button type="submit">Process</button>
+    </form>
+    <h3>Current Emotional Response: <span id="emotionResponse">None</span></h3>
+    <h2>Audio Visualization</h2>
+    <canvas id="audioCanvas" width="600" height="100"></canvas>
+    <h2>Latest Decision</h2>
+    <div id="latestDecision">None</div>
+    <button onclick="startBrain()">Start Brain</button>
+    <button onclick="stopBrain()">Stop Brain</button>
+
+    <script>
+        const minValSlider = document.getElementById("minVal");
+        const maxValSlider = document.getElementById("maxVal");
+        const minValOutput = document.getElementById("minValOutput");
+        const maxValOutput = document.getElementById("maxValOutput");
+
+        minValSlider.oninput = function() {
+            minValOutput.innerText = this.value;
+        }
+        maxValSlider.oninput = function() {
+            maxValOutput.innerText = this.value;
+        }
+
+        document.getElementById("paramsForm").onsubmit = function(event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            fetch("/update_params", {
+                method: "POST",
+                body: formData
+            }).then(response => {
+                if (!response.ok) {
+                    alert("Failed to update parameters");
+                }
+            });
+        }
+
+        document.getElementById("emotionForm").onsubmit = function(event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            fetch("/process_emotion", {
+                method: "POST",
+                body: formData
+            }).then(response => response.json()).then(data => {
+                document.getElementById("emotionResponse").innerText = data.response;
+            }).catch(error => {
+                alert("Failed to process emotion");
+                console.error(error);
+            });
+        }
+
+        const eventSource = new EventSource('/audio_feed');
+        eventSource.onmessage = function(event) {
+            const audioData = JSON.parse(event.data);
+            const canvas = document.getElementById('audioCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height / 2);
+            audioData.forEach((value, index) => {
+                const x = index * canvas.width / audioData.length;
+                const y = (canvas.height / 2) + (value / 128.0 * canvas.height / 2);
+                ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+
+        function startBrain() {
+            fetch("/start_brain", { method: "POST" }).then(response => {
+                if (!response.ok) {
+                    alert("Failed to start brain");
+                }
+            });
+        }
+
+        function stopBrain() {
+            fetch("/stop_brain", { method: "POST" }).then(response => {
+                if (!response.ok) {
+                    alert("Failed to stop brain");
+                }
+            });
+        }
+
+        setInterval(() => {
+            fetch("/latest_decision", { method: "GET" }).then(response => response.json()).then(data => {
+                document.getElementById("latestDecision").innerText = data.decision;
+            }).catch(error => {
+                console.error(error);
+            });
+
+            fetch("/latest_emotion", { method: "GET" }).then(response => response.json()).then(data => {
+                document.getElementById("emotionResponse").innerText = data.emotion;
+            }).catch(error => {
+                console.error(error);
+            });
+        }, 1000);
+    </script>
+</body>
+</html>
