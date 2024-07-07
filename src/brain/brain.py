@@ -2,19 +2,27 @@ import cv2
 import numpy as np
 import threading
 import time
-import speech_recognition as sr
-import pyaudio
 import logging
-from brain.emotion import Emotion
-from brain.learning_algorithms import LearningAlgorithms
-from brain.motor_control import MotorControl
+import speech_recognition as sr
+from textblob import TextBlob
 from neural_networks.language_processing import LanguageProcessingNN
 from neural_networks.memory_management import MemoryManagementNN
 from neural_networks.decision_making import DecisionMakingNN
-from sensory_input import AuditoryProcessor, VisualProcessor, TactileProcessor
+from neural_networks.sound_recognition import SoundRecognitionNN
+from neural_networks.texture_recognition import TextureRecognitionNN
+from brain.emotion import Emotion
+from brain.learning_algorithms import LearningAlgorithms
+from brain.motor_control import MotorControl
+import pyaudio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+
+# Audio parameters
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+RATE = 44100
+CHUNK = 1024
 
 class Brain:
     def __init__(self):
@@ -22,59 +30,68 @@ class Brain:
             'language_processing': LanguageProcessingNN(),
             'memory_management': MemoryManagementNN(),
             'decision_making': DecisionMakingNN(),
+            'sound_recognition': SoundRecognitionNN(),
+            'texture_recognition': TextureRecognitionNN(),
         }
         self.sensory_inputs = {}
         self.emotion = Emotion()
         self.learning = LearningAlgorithms()
         self.motor_control = MotorControl()
-        self.auditory_processor = AuditoryProcessor()
-        self.visual_processor = VisualProcessor()
-        self.tactile_processor = TactileProcessor()
-        self.recognizer = sr.Recognizer()
         self.running = False
         self.latest_frame = None
         self.latest_decision = None
-        self.latest_emotion = "The system has no strong emotional response."
+        self.latest_emotion = None
         self.latest_audio = None
+        self.recognizer = sr.Recognizer()
         self.audio_thread = None
+
+    def process_visual_input(self, visual_data):
+        gray_image = cv2.cvtColor(visual_data, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray_image, 100, 200)
+        average_brightness = np.mean(gray_image)
+        return edges, average_brightness
 
     def process_input(self, input_data):
         sensory_type, sensory_data = input_data
         if sensory_type == 'visual':
-            edges, brightness = self.visual_processor.process_visual_input(sensory_data)
+            edges, brightness = self.process_visual_input(sensory_data)
             self.sensory_inputs['visual'] = edges
             self.sensory_inputs['visual_brightness'] = brightness
-            self.analyze_emotion_from_visual(brightness)
         elif sensory_type == 'auditory':
-            processed_data, sentiment = self.auditory_processor.process_auditory_input(sensory_data)
-            self.sensory_inputs['auditory'] = processed_data
-            self.latest_audio = processed_data
-            self.analyze_emotion_from_audio(sentiment)
+            self.sensory_inputs['auditory'] = self.process_auditory_input(sensory_data)
         elif sensory_type == 'tactile':
-            self.sensory_inputs['tactile'] = self.tactile_processor.process_tactile_input(sensory_data)
+            self.sensory_inputs['tactile'] = self.process_tactile_input(sensory_data)
         else:
             raise ValueError(f"Unsupported sensory type: {sensory_type}")
 
-    def analyze_emotion_from_visual(self, brightness):
-        if brightness > 127:
-            self.process_emotion("Bright")
+    def process_auditory_input(self, auditory_data):
+        try:
+            audio = sr.AudioData(auditory_data.tobytes(), RATE, 2)
+            text = self.recognizer.recognize_google(audio)
+            logging.info(f"Recognized audio: {text}")
+            self.latest_audio = text
+            processed_data = self.neural_networks['sound_recognition'].process_sound(text)
+            self.analyze_emotion_from_audio(text)
+        except sr.UnknownValueError:
+            logging.info("Could not understand audio")
+            processed_data = "Could not understand audio"
+        except sr.RequestError as e:
+            logging.error(f"Could not request results from Google Speech Recognition service; {e}")
+            processed_data = f"Could not request results from Google Speech Recognition service; {e}"
+        return processed_data
+
+    def analyze_emotion_from_audio(self, text):
+        sentiment = TextBlob(text).sentiment.polarity
+        if sentiment > 0:
+            self.process_emotion("Happy")
+        elif sentiment < 0:
+            self.process_emotion("Sad")
         else:
-            self.process_emotion("Dark")
+            self.process_emotion("Neutral")
 
-    def analyze_emotion_from_audio(self, sentiment):
-        logging.info(f"Audio sentiment polarity: {sentiment}")
-        if sentiment is not None:
-            if sentiment > 0.2:
-                self.process_emotion("Happy")
-            elif sentiment < -0.2:
-                self.process_emotion("Sad")
-            else:
-                self.process_emotion("Neutral")
-
-    def process_emotion(self, emotion_data):
-        self.emotion.process_emotion(emotion_data)
-        self.latest_emotion = self.emotion.generate_response()
-        logging.info(f"Processed emotion: {emotion_data} | Response: {self.latest_emotion}")
+    def process_tactile_input(self, tactile_data):
+        processed_data = self.neural_networks['texture_recognition'].classify_texture(tactile_data)
+        return processed_data
 
     def make_decision(self):
         decisions = []
@@ -97,6 +114,11 @@ class Brain:
             output = "No recent decision available to generate output."
         return output
 
+    def process_emotion(self, emotion_data):
+        self.emotion.process_emotion(emotion_data)
+        self.latest_emotion = self.emotion.generate_response()
+        logging.info(f"Processed emotion: {emotion_data} | Response: {self.latest_emotion}")
+
     def generate_emotional_response(self):
         return self.emotion.generate_response()
 
@@ -109,10 +131,6 @@ class Brain:
                     audio = self.recognizer.listen(source)
                     audio_data = np.frombuffer(audio.get_raw_data(), dtype=np.int16)
                     self.process_input(('auditory', audio_data))
-            except sr.UnknownValueError:
-                logging.error("Could not understand audio")
-            except sr.RequestError as e:
-                logging.error(f"Could not request results from Google Speech Recognition service; {e}")
             except Exception as e:
                 logging.error(f"Error capturing audio: {e}")
             time.sleep(0.1)  # Adjust the delay as needed
@@ -131,7 +149,7 @@ class Brain:
         while self.running:
             ret, frame = cap.read()
             if ret:
-                edges, brightness = self.visual_processor.process_visual_input(frame)
+                edges, brightness = self.process_visual_input(frame)
                 self.latest_frame = edges
                 self.process_input(('visual', frame))
 

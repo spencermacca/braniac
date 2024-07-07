@@ -1,8 +1,14 @@
 # neural_networks/decision_making.py
 
+import numpy as np
+
 class DecisionMakingNN:
-    def __init__(self):
-        pass
+    def make_decision(self, sensory_inputs):
+        # Ensure sensory_inputs['visual'] is a numpy array or similar
+        if isinstance(sensory_inputs['visual'], np.ndarray) and sensory_inputs['visual'].mean() > 127:
+            return "Visual decision: Bright"
+        return "Visual decision: Dark"
+
 
     def make_decision(self, sensory_inputs):
         # Enhanced decision-making logic
